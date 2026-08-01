@@ -30,8 +30,17 @@
         # ── Panel ────────────────────────────────────────────────────────
         # Team / Agent / Task と Knowledge 資産の管理コンソール。
         # 上流に package-lock.json があるためそのまま使える（Knowledge と違う点）。
+        # Panel の UI。web/ は独立した package-lock.json を持つため
+        # 別 derivation にする（panel-web.nix の冒頭を参照）。
+        tdai-panel-web = final.callPackage ./panel-web.nix {
+          inherit upstreamRev upstreamHash;
+          npmDepsHash = "sha256-YEw10QT4aUva6bUYn7hqQaYPbEbHSfysytkRgYfuECA=";
+          lockFile = ./locks/panel-web-package-lock.json;
+        };
+
         tdai-panel = final.callPackage ./panel.nix {
           inherit upstreamRev upstreamHash;
+          inherit (final) tdai-panel-web;
           npmDepsHash = "sha256-0xsK4XzIdFHSCiexmfJXIrZV/d3rHOIMyI39pMqQWGo=";
           nodejs = final.nodejs_22;
         };
@@ -51,7 +60,7 @@
       in
       {
         packages = {
-          inherit (pkgs) tdai-core tdai-knowledge tdai-panel;
+          inherit (pkgs) tdai-core tdai-knowledge tdai-panel tdai-panel-web;
           default = pkgs.tdai-knowledge;
         };
 

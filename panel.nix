@@ -15,6 +15,7 @@
 , fetchFromGitHub
 , nodejs
 , makeWrapper
+, tdai-panel-web
 , upstreamRev
 , upstreamHash
 , npmDepsHash
@@ -63,8 +64,17 @@ buildNpmPackage {
     # 探す。環境変数での指定口は無い（dist を grep しても該当なし）。
     # そのため TDAI_PANEL_WORKDIR で作業ディレクトリを与えられるようにする。
     # 既定は $PWD なので、config/ を持つ場所から起動すればそのまま動く。
+    #
+    # UI（web/dist）も .gitignore により npm パッケージから落ちる。さらに
+    # web/ は独立した package-lock.json を持つため buildNpmPackage の
+    # npmDeps を分ける必要があり、別 derivation にしてある。
+    # サーバは UI_DIST_DIR でパスを差し替えられる（panel-config.ts:51）ので
+    # そこを指す。これが無いと GET / が 404 になり、ログに
+    #   serveStatic: root path './web/dist' is not found
+    # が出る。
     makeWrapper ${nodejs}/bin/node "$out/bin/tdai-panel" \
       --add-flags "$pkgDir/dist/index.js" \
+      --set-default UI_DIST_DIR "${tdai-panel-web}" \
       --run 'cd "''${TDAI_PANEL_WORKDIR:-$PWD}"' 
   '';
 

@@ -17,6 +17,16 @@
         # ── Knowledge Service ────────────────────────────────────────────
         # Wiki / CodeGraph。SQLite だけで動き外部 DB は不要。
         # knowledge-server（HTTP）と knowledge-mcp（MCP）を公開する。
+        # ── Memory Core (v2) ─────────────────────────────────────────────
+        # metadata 層（user / team / agent / task / skill）を含む。
+        # npm 公開版 1.x には metadata/ が無く Panel も Skill API も使えない。
+        tdai-core = final.callPackage ./core.nix {
+          inherit upstreamRev upstreamHash;
+          npmDepsHash = "sha256-udYhb1gohqgsBBdhN9oeX29/5Tw428jluV2EmsVigZ4=";
+          lockFile = ./locks/core-package-lock.json;
+          nodejs = final.nodejs_22;
+        };
+
         # ── Panel ────────────────────────────────────────────────────────
         # Team / Agent / Task と Knowledge 資産の管理コンソール。
         # 上流に package-lock.json があるためそのまま使える（Knowledge と違う点）。
@@ -41,7 +51,7 @@
       in
       {
         packages = {
-          inherit (pkgs) tdai-knowledge tdai-panel;
+          inherit (pkgs) tdai-core tdai-knowledge tdai-panel;
           default = pkgs.tdai-knowledge;
         };
 
@@ -50,6 +60,11 @@
             type = "app";
             program = "${pkgs.tdai-knowledge}/bin/knowledge-server";
             meta.description = "Start the TDAI Knowledge Service (wiki / code-graph)";
+          };
+          core = {
+            type = "app";
+            program = "${pkgs.tdai-core}/bin/tdai-core-gateway";
+            meta.description = "Start the TDAI Memory Core v2 gateway";
           };
           panel = {
             type = "app";
@@ -66,7 +81,7 @@
         formatter = pkgs.nixpkgs-fmt;
 
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [ tdai-knowledge tdai-panel nodejs_22 jq nixpkgs-fmt gh curl ];
+          packages = with pkgs; [ tdai-core tdai-knowledge tdai-panel nodejs_22 jq nixpkgs-fmt gh curl ];
         };
       }) // {
       overlays.default = overlay;

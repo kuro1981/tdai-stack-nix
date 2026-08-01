@@ -89,8 +89,15 @@ buildNpmPackage {
       exit 1
     fi
 
+    # tsx の CLI に .ts を渡す。
+    #
+    # `node --import tsx` はカレントディレクトリから tsx を解決するため、
+    # パッケージ内の node_modules を見つけられず ERR_MODULE_NOT_FOUND になる。
+    # また tsx の package.json は exports "." を ./dist/loader.mjs としているが
+    # その実体は存在しない（あるのは dist/esm/index.mjs と dist/cli.mjs）。
+    # memory-tencentdb-nix で実績のある cli.mjs 経由に揃える。
     makeWrapper ${nodejs}/bin/node "$out/bin/tdai-core-gateway" \
-      --add-flags "--import tsx" \
+      --add-flags "$pkgDir/node_modules/tsx/dist/cli.mjs" \
       --add-flags "$pkgDir/src/gateway/server.ts"
 
     # 移行スクリプト（v2 -> v3）も同梱する。新 Gateway 起動前に要実行。

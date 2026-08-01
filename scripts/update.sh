@@ -24,8 +24,8 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 ensure_in_repository_root() {
-  [[ -f flake.nix && -f knowledge.nix ]] || {
-    log_error "flake.nix / knowledge.nix が見つかりません。リポジトリ root で実行してください。"
+  [[ -f flake.nix && -f knowledge.nix && -f core.nix && -f panel-web.nix ]] || {
+    log_error "flake.nix / *.nix が見つかりません。リポジトリ root で実行してください。"
     exit 1
   }
 }
@@ -57,55 +57,96 @@ fetch_source_hash() {
   nix hash to-sri --type sha256 "$b32"
 }
 
+# 上流にロックが無い / 使い物にならないものを自前生成する。
+#
+#   MemoryKnowledge    ロック自体が無い
+#   MemoryCore         ロックが無い。peer 競合があり --legacy-peer-deps が要る
+#   MemoryPanel/web    ロックはあるが mirrors.tencent.com と npmjs が混在し、
+#                      peer 競合で npm ci が再解決に入って ENOTCACHED になる
+#
+# web だけ graphology-types を直接依存として足す。--legacy-peer-deps は peer を
+# install しないため、これが無いと tsc が TS2339 で落ちる（panel-web.nix 参照）。
+regenerate_one_lock() {
+  local rev="$1" subdir="$2" out="$3" extra_flags="$4" inject_graphology="$5"
+  log_info "${subdir} の package-lock.json を再生成..."
+  local work; work="$(mktemp -d)"
+  gh api "repos/${UPSTREAM_REPO}/contents/${subdir}/package.json?ref=${rev}" \
+    --jq '.content' | base64 -d > "$work/package.json"
+
+  if [[ "$inject_graphology" == "yes" ]]; then
+    jq '.devDependencies["graphology-types"] = "0.24.8"' "$work/package.json" \
+      > "$work/package.json.tmp" && mv "$work/package.json.tmp" "$work/package.json"
+  fi
+
+  # shellcheck disable=SC2086
+  ( cd "$work" && npm install --package-lock-only --ignore-scripts \
+      --registry=https://registry.npmjs.org --no-audit --no-fund \
+      $extra_flags >/dev/null 2>&1 )
+  [[ -f "$work/package-lock.json" ]] || { log_error "${subdir} のロック生成に失敗しました"; rm -rf "$work"; exit 1; }
+  cp "$work/package-lock.json" "$out"
+  log_info "  $(jq '.packages|length' "$out") パッケージ -> ${out}"
+  rm -rf "$work"
+}
+
 regenerate_lock() {
   local rev="$1"
-  log_info "MemoryKnowledge の package-lock.json を再生成..."
-  local work; work="$(mktemp -d)"
-  gh api "repos/${UPSTREAM_REPO}/contents/MemoryKnowledge/package.json?ref=${rev}" \
-    --jq '.content' | base64 -d > "$work/package.json"
-  ( cd "$work" && npm install --package-lock-only --ignore-scripts >/dev/null 2>&1 )
-  [[ -f "$work/package-lock.json" ]] || { log_error "ロック生成に失敗しました"; rm -rf "$work"; exit 1; }
-  cp "$work/package-lock.json" locks/knowledge-package-lock.json
-  log_info "  $(jq '.packages|length' locks/knowledge-package-lock.json) パッケージ"
-  rm -rf "$work"
+  regenerate_one_lock "$rev" MemoryKnowledge  locks/knowledge-package-lock.json ""                    no
+  regenerate_one_lock "$rev" MemoryCore       locks/core-package-lock.json      "--legacy-peer-deps"  no
+  regenerate_one_lock "$rev" MemoryPanel/web  locks/panel-web-package-lock.json "--legacy-peer-deps"  yes
 }
 
 # npmDepsHash は事前計算できない。ダミーでビルドを失敗させ got: を拾う。
 #
-# flake.nix には npmDepsHash が 2 つある（panel が先、knowledge が後）。
-# sed の一括置換だと両方が同じ値になるため、出現順で個別に差し替える。
-set_nth_npm_deps_hash() {
-  local nth="$1" value="$2"
-  awk -v n="$nth" -v v="$value" '
-    /npmDepsHash = "/ { c++; if (c == n) { sub(/npmDepsHash = "[^"]*";/, "npmDepsHash = \"" v "\";") } }
+# flake.nix には npmDepsHash が 4 つある。以前は出現順（1 番目 / 2 番目…）で
+# 差し替えていたが、パッケージが増えるたびに番号がずれて別のパッケージの
+# ハッシュを壊す。属性名の直後に現れる npmDepsHash を書き換える方式にした。
+set_npm_deps_hash() {
+  local attr="$1" value="$2"
+  awk -v a="$attr" -v v="$value" '
+    $0 ~ ("^ *" a " = final.callPackage") { inblk = 1 }
+    inblk && /npmDepsHash = "/ {
+      sub(/npmDepsHash = "[^"]*";/, "npmDepsHash = \"" v "\";")
+      inblk = 0
+    }
     { print }
   ' flake.nix > flake.nix.tmp && mv flake.nix.tmp flake.nix
 }
 
 resolve_one_hash() {
-  local nth="$1" attr="$2"
+  local attr="$1"
   log_info "npmDepsHash を解決: ${attr}（ここでビルドが 1 度失敗するのは想定どおり）..."
-  set_nth_npm_deps_hash "$nth" "$DUMMY_HASH"
+  set_npm_deps_hash "$attr" "$DUMMY_HASH"
   local out; out="$(nix build ".#${attr}" 2>&1 || true)"
   local h; h="$(echo "$out" | sed -n 's/.*got: *\(sha256-[A-Za-z0-9+/=]*\).*/\1/p' | head -1)"
   [[ -n "$h" ]] || { log_error "${attr} の npmDepsHash を特定できませんでした:"; echo "$out" | tail -20; exit 1; }
   log_info "  ${attr}: $h"
-  set_nth_npm_deps_hash "$nth" "$h"
+  set_npm_deps_hash "$attr" "$h"
 }
 
 resolve_npm_deps_hash() {
-  # flake.nix 内の出現順に対応させる
-  resolve_one_hash 1 tdai-panel
-  resolve_one_hash 2 tdai-knowledge
+  # panel-web は panel より先に解決すること。panel のラッパーが
+  # panel-web の store path を埋め込むため、後だと panel を建て直す羽目になる。
+  resolve_one_hash tdai-core
+  resolve_one_hash tdai-panel-web
+  resolve_one_hash tdai-panel
+  resolve_one_hash tdai-knowledge
 }
 
 verify_build() {
   log_info "ビルド検証..."
-  nix build .#tdai-knowledge .#tdai-panel --no-link >/dev/null
+  nix build .#tdai-core .#tdai-knowledge .#tdai-panel .#tdai-panel-web --no-link >/dev/null
+  local co; co="$(nix build .#tdai-core --no-link --print-out-paths)"
   local ks; ks="$(nix build .#tdai-knowledge --no-link --print-out-paths)"
   local pn; pn="$(nix build .#tdai-panel --no-link --print-out-paths)"
-  [[ -x "$ks/bin/knowledge-server" ]] || { log_error "knowledge-server が生成されていません"; exit 1; }
-  [[ -x "$pn/bin/tdai-panel" ]]       || { log_error "tdai-panel が生成されていません"; exit 1; }
+  local pw; pw="$(nix build .#tdai-panel-web --no-link --print-out-paths)"
+  [[ -x "$co/bin/tdai-core-gateway" ]] || { log_error "tdai-core-gateway が生成されていません"; exit 1; }
+  [[ -x "$ks/bin/knowledge-server" ]]  || { log_error "knowledge-server が生成されていません"; exit 1; }
+  [[ -x "$pn/bin/tdai-panel" ]]        || { log_error "tdai-panel が生成されていません"; exit 1; }
+  [[ -f "$pw/index.html" ]]            || { log_error "panel の UI が生成されていません"; exit 1; }
+
+  # UI がラッパーに埋め込まれていること（これが抜けると GET / が 404 になる）
+  grep -q "UI_DIST_DIR" "$pn/bin/tdai-panel" \
+    || { log_error "tdai-panel に UI_DIST_DIR が埋め込まれていません"; exit 1; }
   log_info "ビルド検証を通過しました。"
 }
 

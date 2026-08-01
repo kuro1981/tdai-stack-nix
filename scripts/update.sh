@@ -71,21 +71,42 @@ regenerate_lock() {
 }
 
 # npmDepsHash は事前計算できない。ダミーでビルドを失敗させ got: を拾う。
-resolve_npm_deps_hash() {
-  log_info "npmDepsHash を解決（ここでビルドが 1 度失敗するのは想定どおり）..."
-  set_nix_string "npmDepsHash" "$DUMMY_HASH"
-  local out; out="$(nix build .#tdai-knowledge 2>&1 || true)"
+#
+# flake.nix には npmDepsHash が 2 つある（panel が先、knowledge が後）。
+# sed の一括置換だと両方が同じ値になるため、出現順で個別に差し替える。
+set_nth_npm_deps_hash() {
+  local nth="$1" value="$2"
+  awk -v n="$nth" -v v="$value" '
+    /npmDepsHash = "/ { c++; if (c == n) { sub(/npmDepsHash = "[^"]*";/, "npmDepsHash = \"" v "\";") } }
+    { print }
+  ' flake.nix > flake.nix.tmp && mv flake.nix.tmp flake.nix
+}
+
+resolve_one_hash() {
+  local nth="$1" attr="$2"
+  log_info "npmDepsHash を解決: ${attr}（ここでビルドが 1 度失敗するのは想定どおり）..."
+  set_nth_npm_deps_hash "$nth" "$DUMMY_HASH"
+  local out; out="$(nix build ".#${attr}" 2>&1 || true)"
   local h; h="$(echo "$out" | sed -n 's/.*got: *\(sha256-[A-Za-z0-9+/=]*\).*/\1/p' | head -1)"
-  [[ -n "$h" ]] || { log_error "npmDepsHash を特定できませんでした:"; echo "$out" | tail -20; exit 1; }
-  log_info "  npmDepsHash: $h"
-  set_nix_string "npmDepsHash" "$h"
+  [[ -n "$h" ]] || { log_error "${attr} の npmDepsHash を特定できませんでした:"; echo "$out" | tail -20; exit 1; }
+  log_info "  ${attr}: $h"
+  set_nth_npm_deps_hash "$nth" "$h"
+}
+
+resolve_npm_deps_hash() {
+  # flake.nix 内の出現順に対応させる
+  resolve_one_hash 1 tdai-panel
+  resolve_one_hash 2 tdai-knowledge
 }
 
 verify_build() {
   log_info "ビルド検証..."
-  nix build .#tdai-knowledge >/dev/null
-  [[ -x result/bin/knowledge-server ]] || { log_error "knowledge-server が生成されていません"; exit 1; }
-  log_info "ビルド検証を通過しました。実行ファイル: $(ls result/bin | tr '\n' ' ')"
+  nix build .#tdai-knowledge .#tdai-panel --no-link >/dev/null
+  local ks; ks="$(nix build .#tdai-knowledge --no-link --print-out-paths)"
+  local pn; pn="$(nix build .#tdai-panel --no-link --print-out-paths)"
+  [[ -x "$ks/bin/knowledge-server" ]] || { log_error "knowledge-server が生成されていません"; exit 1; }
+  [[ -x "$pn/bin/tdai-panel" ]]       || { log_error "tdai-panel が生成されていません"; exit 1; }
+  log_info "ビルド検証を通過しました。"
 }
 
 print_usage() {

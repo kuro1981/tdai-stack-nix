@@ -81,11 +81,49 @@ proxy を Claude Code に使うと `ANTHROPIC_BASE_URL` を差し替えること
 
 ---
 
-## 既知の制約
+## ⚠️ Knowledge Service には認証が無い
 
-- **`KNOWLEDGE_PUBLIC_BASE_URL` に `127.0.0.1` を使えない。** Agent と Gateway が KS の tools を呼ぶため、外部から到達できるアドレスが要る。したがって KS のポートは外部公開になる。認証の要否は要確認
+**最も重要な制約。設定を誤ると取り込んだコードベースが丸ごと晒される。**
+
+上流ドキュメントは `KNOWLEDGE_PUBLIC_BASE_URL` について「`127.0.0.1` / `localhost` は不可、外部から到達できるアドレスであること」と要求する。しかし **KS 自体に認証層は存在しない**。
+
+`MemoryKnowledge/src/middleware/` にあるのは `error-handler.ts` と `response-envelope.ts`（アクセスログ）だけで、`server.ts` もこの 2 つしか `app.use` していない。
+
+無認証で公開される操作は以下。
+
+```
+POST /v3/tools/list    利用可能なツールの列挙
+POST /v3/tools/call    ↓ を実行
+    search       全文検索
+    list_pages   Wiki ページ一覧
+    read_page    Wiki 本文の読み取り
+    get_graph    CodeGraph（シンボル・呼び出し関係・影響範囲）
+    list_raw     生データ一覧
+    read_raw     生データの読み取り        ← ソースコードそのもの
+```
+
+**`read_raw` と `get_graph` により、到達できる者は誰でもコードベースの中身と構造を読める。**
+
+### 対処
+
+「外部到達可能」の要件は**インターネット公開を意味しない**。「コンテナ / ホストの境界を越えて Agent と Gateway が呼べること」と解釈する。
+
+| 方法 | 内容 | 適用条件 |
+| --- | --- | --- |
+| **A. Docker ネットワーク内** | `http://memory-hub:8424/v3`。ホストへのポート公開自体をやめる | 全コンポーネントがコンテナ内で完結する場合 |
+| **B. Tailnet 限定** | `http://<tailscale-ip>:8424/v3`。Tailnet 内のみ到達可能 | コンテナ外（例: Hermes）から KS を呼ぶ場合 |
+
+本パッケージはポートを `127.0.0.1` にバインドしている。**B を採る場合はバインドアドレスの変更が必要で、その時点でインターネットに晒さない経路（Tailscale / VPN / firewall）を必ず用意すること。**
+
+`0.0.0.0` にバインドして公開してはならない。
+
+---
+
+## その他の既知の制約
+
 - `metadata-instances.json` の `api_key` は Core の Bearer token と同じもの
 - 上流は `1.0.0-beta.1` の段階。API もディレクトリ構成も変わりうる
+- Core の Bearer gate（`GATEWAY_API_KEY`）は proxy 併用時に使えない（上流の非互換）
 
 ---
 

@@ -48,6 +48,17 @@
           #      127.0.0.1 / localhost は不可。/v3 を含むこと
           #   3. LLM 接続先
           #
+          # 【⚠ 認証が無い】
+          #   KS には認証層が存在しない（middleware は error-handler と
+          #   response-envelope のみ）。POST /v3/tools/call から read_raw /
+          #   get_graph が無認証で呼べるため、到達できる者は取り込んだ
+          #   コードベースの中身と構造をすべて読める。
+          #
+          #   「外部到達可能」はインターネット公開を意味しない。コンテナ /
+          #   ホストの境界を越えられればよい。ポートは 127.0.0.1 に
+          #   バインドしている。変更する場合は Tailnet / VPN / firewall で
+          #   必ず到達範囲を絞ること。0.0.0.0 で公開してはならない。
+          #
           # 【LLM_MODE】
           #   proxy  : Tencent Cloud の Memory Gateway の LLM 転送を使う（既定）
           #   custom : 自前のエンドポイントへ直結。クラウド購入が不要になる

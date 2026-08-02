@@ -41,8 +41,23 @@ buildNpmPackage {
   inherit npmDepsHash nodejs;
 
   # 上流にロックが無いため持ち込む。
+  # 【MCP クライアントが x-tdai-service-id を送らない】
+  #   src/mcp/http-client.ts は Content-Type と Authorization しか付けない。
+  #   一方 HTTP API 側は x-tdai-service-id を必須にしているため、上流の
+  #   MCP サーバは上流の HTTP API に対して常に
+  #     Error: x-tdai-service-id header is required
+  #   を返す。この経路は誰も通していないと見られる。
+  #
+  #   ヘッダを注入する。値は KNOWLEDGE_SERVICE_ID で上書きでき、既定は
+  #   "default"（KS / Core / Panel が使っている service id と揃えてある）。
   postPatch = ''
     cp ${lockFile} ./package-lock.json
+
+    substituteInPlace src/mcp/http-client.ts \
+      --replace-fail \
+        'if (opts.token) headers["Authorization"] = `Bearer ''${opts.token}`;' \
+        'if (opts.token) headers["Authorization"] = `Bearer ''${opts.token}`;
+  headers["x-tdai-service-id"] = process.env.KNOWLEDGE_SERVICE_ID || "default";'
   '';
 
   nativeBuildInputs = [ python3 node-gyp makeWrapper ];

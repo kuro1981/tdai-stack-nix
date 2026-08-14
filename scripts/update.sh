@@ -61,6 +61,8 @@ fetch_source_hash() {
 #
 #   MemoryKnowledge    ロック自体が無い
 #   MemoryCore         ロックが無い。peer 競合があり --legacy-peer-deps が要る
+#   MemoryPanel        ロックはあるが 229 エントリ全部が mirrors.tencent.com。
+#                      GitHub Actions の runner から取れずタイムアウトする
 #   MemoryPanel/web    ロックはあるが mirrors.tencent.com と npmjs が混在し、
 #                      peer 競合で npm ci が再解決に入って ENOTCACHED になる
 #
@@ -78,11 +80,40 @@ regenerate_one_lock() {
       > "$work/package.json.tmp" && mv "$work/package.json.tmp" "$work/package.json"
   fi
 
-  # shellcheck disable=SC2086
-  ( cd "$work" && npm install --package-lock-only --ignore-scripts \
-      --registry=https://registry.npmjs.org --no-audit --no-fund \
-      $extra_flags >/dev/null 2>&1 )
-  [[ -f "$work/package-lock.json" ]] || { log_error "${subdir} のロック生成に失敗しました"; rm -rf "$work"; exit 1; }
+  # 2 回まわすこと。1 回目の npm は入れ子に置いたパッケージの dev / optional
+  # フラグを落とすことがある。実例として MemoryKnowledge の
+  #   node_modules/vitest/node_modules/@esbuild/aix-ppc64
+  # が dev も optional も付かない「本番の必須依存」として書き出され、
+  # buildNpmPackage の npm ci が EBADPLATFORM で落ちた
+  #   （wanted {"os":"aix","cpu":"ppc64"} / current linux-x64）。
+  # 同一版の tsx/node_modules/@esbuild/aix-ppc64 は正しく付いていたので、
+  # 依存の中身ではなく npm のツリー構築側の取りこぼし。
+  # 2 回目で npm がツリーを正規化し、重複placement が畳まれて解消する。
+  local pass
+  for pass in 1 2; do
+    # shellcheck disable=SC2086
+    ( cd "$work" && npm install --package-lock-only --ignore-scripts \
+        --registry=https://registry.npmjs.org --no-audit --no-fund \
+        $extra_flags >/dev/null 2>&1 )
+    [[ -f "$work/package-lock.json" ]] || { log_error "${subdir} のロック生成に失敗しました（pass ${pass}）"; rm -rf "$work"; exit 1; }
+  done
+
+  # os / cpu 制約を持つのに dev / optional / devOptional のどれも付いていない
+  # パッケージが残っていたら、上記の取りこぼしが再発している。
+  # 黙って通すと nix build 側で EBADPLATFORM になるためここで落とす。
+  local unflagged
+  unflagged="$(jq -r '
+    .packages | to_entries[]
+    | select(.value.os or .value.cpu)
+    | select((.value.dev|not) and (.value.optional|not) and (.value.devOptional|not))
+    | .key' "$work/package-lock.json")"
+  if [[ -n "$unflagged" ]]; then
+    log_error "${subdir}: プラットフォーム制約付きなのに optional 扱いになっていないパッケージがあります:"
+    echo "$unflagged"
+    rm -rf "$work"
+    exit 1
+  fi
+
   cp "$work/package-lock.json" "$out"
   log_info "  $(jq '.packages|length' "$out") パッケージ -> ${out}"
   rm -rf "$work"
@@ -92,6 +123,7 @@ regenerate_lock() {
   local rev="$1"
   regenerate_one_lock "$rev" MemoryKnowledge  locks/knowledge-package-lock.json ""                    no
   regenerate_one_lock "$rev" MemoryCore       locks/core-package-lock.json      "--legacy-peer-deps"  no
+  regenerate_one_lock "$rev" MemoryPanel      locks/panel-package-lock.json     ""                    no
   regenerate_one_lock "$rev" MemoryPanel/web  locks/panel-web-package-lock.json "--legacy-peer-deps"  yes
 }
 

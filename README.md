@@ -57,11 +57,18 @@ Docker イメージを nix でラップしても、再現性の実体は Docker 
 
 ---
 
-## 上流にロックファイルが無い（Knowledge）
+## 上流のロックファイルが使えない
 
-`MemoryKnowledge` には `package-lock.json` が無く、`buildNpmPackage` が使えない。自前生成したものを `locks/` に置き `postPatch` で持ち込む。
+4 パッケージすべて、`locks/` に自前生成したロックを置き `postPatch` で持ち込んでいる。理由はそれぞれ違う。
 
-`MemoryPanel` にはロックがあるためそのまま使える。
+| パッケージ | 上流のロック | 自前生成する理由 |
+| --- | --- | --- |
+| `MemoryKnowledge` | 無い | `buildNpmPackage` がロックを要求する |
+| `MemoryCore` | 無い | 同上。peer 衝突があり `--legacy-peer-deps` が要る |
+| `MemoryPanel` | ある | 229 エントリ全部が `mirrors.tencent.com`。GitHub Actions の runner から取れずタイムアウトする。さらに `package.json` に無い依存（drizzle 系）が残っており内容も古い |
+| `MemoryPanel/web` | ある | `mirrors.tencent.com` と `registry.npmjs.org` が混在。peer 衝突で `npm ci` が再解決に入り `ENOTCACHED` になる |
+
+生成はすべて `--registry=https://registry.npmjs.org` で行う（`scripts/update.sh` の `regenerate_one_lock`）。
 
 ---
 
@@ -119,8 +126,10 @@ POST /v3/tools/call
 
 1. `upstreamRev`
 2. `upstreamHash`
-3. `locks/knowledge-package-lock.json`（再生成）
-4. `npmDepsHash` × 2（3 から決まる。ダミーでビルドを失敗させ `got:` を拾う）
+3. `locks/*.json` × 4（再生成）
+4. `npmDepsHash` × 4（3 から決まる。ダミーでビルドを失敗させ `got:` を拾う）
+
+`tdai-panel-web` は `tdai-panel` より先に解決すること。panel のラッパーが panel-web の store path を埋め込むため。
 
 ---
 

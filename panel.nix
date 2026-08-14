@@ -2,8 +2,12 @@
 #
 # Team / Agent / Task と Knowledge 資産を管理する Web コンソール。
 #
-# Knowledge と違い、こちらは上流に package-lock.json があるためそのまま使える。
-# ネイティブ依存も無く、依存は 5 個の軽量サーバ（Next.js ではない）。
+# ネイティブ依存は無く、依存は 5 個の軽量サーバ（Next.js ではない）。
+#
+# 上流に package-lock.json はあるが、229 エントリすべてが
+# mirrors.tencent.com を指しており GitHub Actions の runner からは
+# タイムアウトする（[28] Timeout was reached）。web/ と同じく、
+# registry.npmjs.org だけで生成し直したロックを持ち込む。
 #
 # 【起動に必要なもの】
 #   metadata-instances.json を config/ に置くこと。Memory インスタンスの
@@ -19,6 +23,7 @@
 , upstreamRev
 , upstreamHash
 , npmDepsHash
+, lockFile
 }:
 
 buildNpmPackage {
@@ -39,6 +44,11 @@ buildNpmPackage {
   nativeBuildInputs = [ makeWrapper ];
 
   npmBuildScript = "build";
+
+  # 上流ロックは mirrors.tencent.com 固定のため差し替える（冒頭の説明を参照）。
+  postPatch = ''
+    cp ${lockFile} ./package-lock.json
+  '';
 
   # 上流には .npmignore が無く .gitignore に dist/ が入っている。npm は
   # .npmignore が無い場合 .gitignore を代用するため、npmInstallHook が

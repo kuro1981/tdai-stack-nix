@@ -24,6 +24,16 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ロック再生成は runner の既定 node で走る。ubuntu-latest の既定は
+      # 22.x（npm 10.9.x）で、arborist が MemoryKnowledge の依存ツリーで
+      #   TypeError: Cannot read properties of null (reading 'edgesOut')
+      # を投げて落ちる（build-ideal-tree.js の #loadPeerSet）。npm 11 なら
+      # 通るため node を明示して固定する。runner イメージ任せにすると、
+      # 上のチェックアウト actions と同じ形でいつか勝手に壊れる。
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
       - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixos-unstable

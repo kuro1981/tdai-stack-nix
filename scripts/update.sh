@@ -31,7 +31,7 @@ ensure_in_repository_root() {
 }
 
 ensure_required_tools_installed() {
-  for c in gh jq nix npm; do
+  for c in gh jq nix node npm; do
     command -v "$c" >/dev/null 2>&1 || { log_error "$c が必要です"; exit 1; }
   done
 }
@@ -72,8 +72,11 @@ regenerate_one_lock() {
   local rev="$1" subdir="$2" out="$3" extra_flags="$4" inject_graphology="$5"
   log_info "${subdir} の package-lock.json を再生成..."
   local work; work="$(mktemp -d)"
-  gh api "repos/${UPSTREAM_REPO}/contents/${subdir}/package.json?ref=${rev}" \
-    --jq '.content' | base64 -d > "$work/package.json"
+  if ! gh api "repos/${UPSTREAM_REPO}/contents/${subdir}/package.json?ref=${rev}" \
+       --jq '.content' | base64 -d > "$work/package.json"; then
+    log_error "${subdir}/package.json を上流から取得できませんでした（rev ${rev:0:12}）"
+    rm -rf "$work"; exit 1
+  fi
 
   if [[ "$inject_graphology" == "yes" ]]; then
     jq '.devDependencies["graphology-types"] = "0.24.8"' "$work/package.json" \
@@ -89,12 +92,23 @@ regenerate_one_lock() {
   # 同一版の tsx/node_modules/@esbuild/aix-ppc64 は正しく付いていたので、
   # 依存の中身ではなく npm のツリー構築側の取りこぼし。
   # 2 回目で npm がツリーを正規化し、重複placement が畳まれて解消する。
-  local pass
+  #
+  # npm の出力は捨てないこと。以前は >/dev/null 2>&1 に流しており、
+  # ubuntu-latest の既定 node が 22.x（npm 10.9.x）だった頃に arborist が
+  #   TypeError: Cannot read properties of null (reading 'edgesOut')
+  # で落ちても、CI のログには「再生成...」の 1 行と exit 1 しか出ず、
+  # 9 日間なぜ落ちているのか分からないまま毎晩失敗し続けた。
+  local pass log
   for pass in 1 2; do
+    log="$work/npm-pass${pass}.log"
     # shellcheck disable=SC2086
-    ( cd "$work" && npm install --package-lock-only --ignore-scripts \
-        --registry=https://registry.npmjs.org --no-audit --no-fund \
-        $extra_flags >/dev/null 2>&1 )
+    if ! ( cd "$work" && npm install --package-lock-only --ignore-scripts \
+             --registry=https://registry.npmjs.org --no-audit --no-fund \
+             $extra_flags >"$log" 2>&1 ); then
+      log_error "${subdir}: npm install が失敗しました（pass ${pass}、npm $(npm -v) / node $(node -v)）"
+      tail -30 "$log"
+      rm -rf "$work"; exit 1
+    fi
     [[ -f "$work/package-lock.json" ]] || { log_error "${subdir} のロック生成に失敗しました（pass ${pass}）"; rm -rf "$work"; exit 1; }
   done
 

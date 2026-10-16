@@ -10,8 +10,8 @@
     let
       # 上流のリビジョン。locks/ のロックファイルはこの rev の package.json に
       # 対応する。両方を同時に更新すること（scripts/update.sh が行う）。
-      upstreamRev = "37b162963ce6cf73d8ae1807e3f3614ad23511ae";
-      upstreamHash = "sha256-9vT1VbfLLpcU+q02Nxv5YCG7Vj5Xg8tHzxiwUBhLY0w=";
+      upstreamRev = "e9a82935b52741e0c798c75326e90b7144eb4d5f";
+      upstreamHash = "sha256-2rG0x4Ap7qK6SZKizWembHZatL6QdCnnq8gKOWmGcYA=";
 
       overlay = final: prev: {
         # ── Knowledge Service ────────────────────────────────────────────
@@ -22,7 +22,7 @@
         # npm 公開版 1.x には metadata/ が無く Panel も Skill API も使えない。
         tdai-core = final.callPackage ./core.nix {
           inherit upstreamRev upstreamHash;
-          npmDepsHash = "sha256-qeu2/FRkqofe0r1M3Svha9t3fr25VfnbuAz8LFkjRak=";
+          npmDepsHash = "sha256-66hiwPxq5uzUA7YPc6dLl6wlG/BXxalg9C8imryJ6Co=";
           lockFile = ./locks/core-package-lock.json;
           nodejs = final.nodejs_22;
         };
@@ -33,14 +33,14 @@
         # 別 derivation にする（panel-web.nix の冒頭を参照）。
         tdai-panel-web = final.callPackage ./panel-web.nix {
           inherit upstreamRev upstreamHash;
-          npmDepsHash = "sha256-OMhgUtQIg+dy1XGg+hIoV7Ji7TXDJ+PYQXox2DFbdm4=";
+          npmDepsHash = "sha256-281pRJxzt266PkFXIngFlDJ5uD0B9SOiHzxTU3Fu8/Q=";
           lockFile = ./locks/panel-web-package-lock.json;
         };
 
         tdai-panel = final.callPackage ./panel.nix {
           inherit upstreamRev upstreamHash;
           inherit (final) tdai-panel-web;
-          npmDepsHash = "sha256-GZGhWtcwnd0tRvl2NiC6w1sSbbHEz01xXI2iMZZASh8=";
+          npmDepsHash = "sha256-5fyeBUUgJp+CiJbxo9hNqOsGLl9pvK5RX0Rh+2hxeJ8=";
           lockFile = ./locks/panel-package-lock.json;
           nodejs = final.nodejs_22;
         };
@@ -48,7 +48,7 @@
         tdai-knowledge = final.callPackage ./knowledge.nix {
           inherit upstreamRev upstreamHash;
           # nix build が失敗したときに表示される値へ差し替える
-          npmDepsHash = "sha256-TDaCEi/OjNZIZIv8+XxWcTlKKSOZdVxQZQ6ULy3Yrkc=";
+          npmDepsHash = "sha256-jCxHPE2HjERwf3pvTpNBdITqYC8NIlfOTLCTM+dSZlk=";
           lockFile = ./locks/knowledge-package-lock.json;
           nodejs = final.nodejs_22;
         };

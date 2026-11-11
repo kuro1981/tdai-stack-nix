@@ -10,8 +10,8 @@
     let
       # 上流のリビジョン。locks/ のロックファイルはこの rev の package.json に
       # 対応する。両方を同時に更新すること（scripts/update.sh が行う）。
-      upstreamRev = "8a4783702977bb3d79f3c8d2f9d799b1f1df8818";
-      upstreamHash = "sha256-cFZvikar1XRS5rh+KDrkQ19EWtab1pD7Q2GGtp9n2Xg=";
+      upstreamRev = "42d4cde50c5a83182fced8c584f9ddb32a620615";
+      upstreamHash = "sha256-waEHxbtMfDXraNzlKr9jm/pOL2bdDp+swAxl4p/APek=";
 
       overlay = final: prev: {
         # ── Knowledge Service ────────────────────────────────────────────
@@ -22,7 +22,7 @@
         # npm 公開版 1.x には metadata/ が無く Panel も Skill API も使えない。
         tdai-core = final.callPackage ./core.nix {
           inherit upstreamRev upstreamHash;
-          npmDepsHash = "sha256-EIm040gzE5ozqFwQWdMrCfjMVhCXq1FBW5eQOH72NWY=";
+          npmDepsHash = "sha256-fGlJiv4zQNg75X2eCQncFBV8/IekkRO/6SRvotWJcJk=";
           lockFile = ./locks/core-package-lock.json;
           nodejs = final.nodejs_22;
         };
@@ -33,7 +33,7 @@
         # 別 derivation にする（panel-web.nix の冒頭を参照）。
         tdai-panel-web = final.callPackage ./panel-web.nix {
           inherit upstreamRev upstreamHash;
-          npmDepsHash = "sha256-g0rgw2ilaqO2OMbEB0SABrTHm4tJlWRIMEp/AdwcMmQ=";
+          npmDepsHash = "sha256-NgTPE9jY/XbI3BstYwbezuAR+UIQF72PwIjgwakte/c=";
           lockFile = ./locks/panel-web-package-lock.json;
         };
 
@@ -48,7 +48,7 @@
         tdai-knowledge = final.callPackage ./knowledge.nix {
           inherit upstreamRev upstreamHash;
           # nix build が失敗したときに表示される値へ差し替える
-          npmDepsHash = "sha256-1tup4M0mgEp7//G1/2WFKDa6JSUFtkJFQV+rllbwYwM=";
+          npmDepsHash = "sha256-Cso6rTSEQ6aiNBrju+NTlOt+8WT40FKCzkP/y5njFqg=";
           lockFile = ./locks/knowledge-package-lock.json;
           nodejs = final.nodejs_22;
         };
